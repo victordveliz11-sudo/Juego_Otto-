@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>¡Ayuda a Otto! 🐩🦴</title>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body {
+            background-color: #2c1d11;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 10px 5px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 100vh;
+            color: #f4e8c1;
+            user-select: none;
+        }
+        h1 { margin: 5px 0 10px 0; font-size: 20px; text-align: center; font-weight: 700; color: #f4e8c1; }
+        
+        #canvas-container {
+            position: relative;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            border: 4px solid #6d4c41;
+        }
+
+        canvas { display: block; background: #e0d0b0; }
+
+        .controls {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: repeat(3, 65px);
+            grid-template-rows: repeat(2, 55px);
+            gap: 8px;
+        }
+        .btn {
+            background: linear-gradient(145deg, #8d6e63, #5d4037);
+            color: white;
+            border: 1px solid #a1887f;
+            border-radius: 12px;
+            font-size: 22px;
+            box-shadow: 0 4px 0 #3e2723;
+            cursor: pointer;
+        }
+        .btn:active { transform: translateY(4px); box-shadow: 0 0 0 #3e2723; }
+        .btn-up { grid-column: 2; grid-row: 1; }
+        .btn-left { grid-column: 1; grid-row: 2; }
+        .btn-down { grid-column: 2; grid-row: 2; }
+        .btn-right { grid-column: 3; grid-row: 2; }
+
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: #fff8e1;
+            color: #3e2723;
+            padding: 22px;
+            border-radius: 20px;
+            border: 3px solid #6d4c41;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 10;
+            width: 80%;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>¡Ayuda a Otto a llegar a su hueso! 🐩</h1>
+    
+    <div id="canvas-container">
+        <canvas id="gameCanvas" width="330" height="330"></canvas>
+    </div>
+
+    <div class="controls">
+        <button class="btn btn-up" id="btn-up">▲</button>
+        <button class="btn btn-left" id="btn-left">◄</button>
+        <button class="btn btn-down" id="btn-down">▼</button>
+        <button class="btn btn-right" id="btn-right">►</button>
+    </div>
+
+    <div id="win-msg" class="popup">¡Otto encontró su hueso! 🎉🦴<br><br><button onclick="resetGame()" style="padding:10px 20px; border-radius:10px; background:#6d4c41; color:white; border:none; font-weight:bold;">Jugar de nuevo</button></div>
+    <div id="lose-msg" class="popup"><span id="lose-text"></span><br><br><button onclick="resetGame()" style="padding:10px 20px; border-radius:10px; background:#6d4c41; color:white; border:none; font-weight:bold;">Reintentar</button></div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const GRID_SIZE = 11;
+        const CELL_SIZE = canvas.width / GRID_SIZE;
+
+        // 0: Camino, 1: Arbusto/Pared, 2: Río, 3: Puente, 4: Ardilla, 5: Barro
+        const map = [
+            [1,1,1,1,1,1,1,1,1,1,1],
+            [1,0,0,0,1,0,0,0,0,0,1],
+            [1,1,1,0,1,2,1,1,1,0,1],
+            [1,0,0,0,0,2,1,0,4,0,1],
+            [1,0,1,1,1,3,1,0,1,0,1],
+            [1,0,4,0,0,2,0,0,1,0,1],
+            [1,0,1,1,1,3,1,1,1,0,1],
+            [1,0,0,5,1,2,0,0,0,0,1],
+            [1,1,1,0,1,2,1,1,1,0,1],
+            [1,0,0,0,0,2,0,5,0,0,1],
+            [1,1,1,1,1,1,1,1,1,1,1]
+        ];
+
+        let otto = { x: 1, y: 1, px: 1 * CELL_SIZE, py: 1 * CELL_SIZE, isMoving: false, legAngle: 0, facing: 'right' };
+        const bone = { x: 9, y: 9 };
+        let gameActive = true;
+
+        // Dibujo del lienzo
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar fondo y mapa
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const x = c * CELL_SIZE;
+                    const y = r * CELL_SIZE;
+                    const type = map[r][c];
+
+                    if (type === 1) { // Arbustos
+                        ctx.fillStyle = '#388e3c';
+                        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                        ctx.fillStyle = '#2e7d32';
+                        ctx.beginPath();
+                        ctx.arc(x + CELL_SIZE/2, y + CELL_SIZE/2, CELL_SIZE/2.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else if (type === 2) { // Río
+                        ctx.fillStyle = '#29b6f6';
+                        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                        ctx.fillStyle = '#81d4fa';
+                        ctx.fillRect(x + 4, y + 8, CELL_SIZE - 8, 3);
+                    } else if (type === 3) { // Puente
+                        ctx.fillStyle = '#8d6e63';
+                        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                        ctx.fillStyle = '#5d4037';
+                        ctx.fillRect(x + 2, y, 3, CELL_SIZE);
+                        ctx.fillRect(x + CELL_SIZE - 5, y, 3, CELL_SIZE);
+                    } else { // Camino suave
+                        ctx.fillStyle = '#f5e6c8';
+                        ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+                        
+                        if (type === 4) { // Ardilla
+                            ctx.fillStyle = '#d84315';
+                            ctx.beginPath();
+                            ctx.arc(x + CELL_SIZE/2, y + CELL_SIZE/2, 6, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.fillStyle = '#ff8a65';
+                            ctx.fillText('🐿️', x + 3, y + 22);
+                        } else if (type === 5) { // Barro
+                            ctx.fillStyle = '#6d4c41';
+                            ctx.beginPath();
+                            ctx.ellipse(x + CELL_SIZE/2, y + CELL_SIZE/2, 8, 5, 0, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
+                }
+            }
+
+            // Dibujar Hueso Meta
+            const bx = bone.x * CELL_SIZE + CELL_SIZE/2;
+            const by = bone.y * CELL_SIZE + CELL_SIZE/2;
+            ctx.font = '20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🦴', bx, by);
+
+            // Dibujar a Otto (Perrito Blanco)
+            drawOtto();
+        }
+
+        function drawOtto() {
+            const cx = otto.px + CELL_SIZE / 2;
+            const cy = otto.py + CELL_SIZE / 2;
+
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            if (otto.facing === 'left') ctx.scale(-1, 1);
+
+            // Animación de patitas al caminar
+            const legOffset = otto.isMoving ? Math.sin(otto.legAngle) * 4 : 0;
+
+            // Patitas traseras y delanteras (Blanquitas)
+            ctx.fillStyle = '#e0e0e0';
+            ctx.fillRect(-8 + legOffset, 6, 4, 8);
+            ctx.fillRect(4 - legOffset, 6, 4, 8);
+
+            // Cuerpo del Caniche/Perrito Blanco
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.ellipse(0, 2, 11, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Cabeza pomposa
+            ctx.beginPath();
+            ctx.arc(6, -5, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Oreja esponjosa
+            ctx.fillStyle = '#f0f0f0';
+            ctx.beginPath();
+            ctx.arc(2, -4, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Hocico y Ojito
+            ctx.fillStyle = '#212121';
+            ctx.beginPath();
+            ctx.arc(11, -5, 2, 0, Math.PI * 2); // Nariz
+            ctx.arc(8, -7, 1.5, 0, Math.PI * 2); // Ojo
+            ctx.fill();
+
+            // Cola esponjosa
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(-11, -3, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        // Movimiento fluido paso a paso
+        function moveOtto(dx, dy, dir) {
+            if (!gameActive || otto.isMoving) return;
+
+            const targetX = otto.x + dx;
+            const targetY = otto.y + dy;
+
+            if (map[targetY] && map[targetY][targetX] !== 1) {
+                otto.isMoving = true;
+                otto.facing = dir;
+                const startPX = otto.px;
+                const startPY = otto.py;
+                const endPX = targetX * CELL_SIZE;
+                const endPY = targetY * CELL_SIZE;
+
+                let progress = 0;
+                const speed = 0.12; // Velocidad de caminata
+
+                function animate() {
+                    progress += speed;
+                    otto.legAngle += 0.4; // Movimiento de patitas
+
+                    if (progress < 1) {
+                        otto.px = startPX + (endPX - startPX) * progress;
+                        otto.py = startPY + (endPY - startPY) * progress;
+                        draw();
+                        requestAnimationFrame(animate);
+                    } else {
+                        otto.px = endPX;
+                        otto.py = endPY;
+                        otto.x = targetX;
+                        otto.y = targetY;
+                        otto.isMoving = false;
+                        draw();
+                        checkTile(targetX, targetY);
+                    }
+                }
+                requestAnimationFrame(animate);
+            }
+        }
+
+        function checkTile(x, y) {
+            const tile = map[y][x];
+
+            if (tile === 2) {
+                showLoss("¡Otto cayó al agua! 🌊🐩");
+            } else if (tile === 4) {
+                showLoss("¡Una ardilla distrajó a Otto! 🐿️🐩");
+            } else if (tile === 5) {
+                showLoss("¡Otto se ensució en el barro! 💩🐩");
+            } else if (x === bone.x && y === bone.y) {
+                gameActive = false;
+                document.getElementById('win-msg').style.display = 'block';
+            }
+        }
+
+        function showLoss(msg) {
+            gameActive = false;
+            document.getElementById('lose-text').innerText = msg;
+            document.getElementById('lose-msg').style.display = 'block';
+        }
+
+        function resetGame() {
+            otto.x = 1; otto.y = 1;
+            otto.px = 1 * CELL_SIZE; otto.py = 1 * CELL_SIZE;
+            otto.isMoving = false;
+            gameActive = true;
+            document.getElementById('win-msg').style.display = 'none';
+            document.getElementById('lose-msg').style.display = 'none';
+            draw();
+        }
+
+        // Asignación de Controles táctiles / Clic
+        document.getElementById('btn-up').onclick = () => moveOtto(0, -1, otto.facing);
+        document.getElementById('btn-down').onclick = () => moveOtto(0, 1, otto.facing);
+        document.getElementById('btn-left').onclick = () => moveOtto(-1, 0, 'left');
+        document.getElementById('btn-right').onclick = () => moveOtto(1, 0, 'right');
+
+        // Renderizado inicial
+        draw();
+    </script>
+</body>
+</html>
